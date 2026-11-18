@@ -12,6 +12,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Baloo+2:wght@600;700;800&family=Bungee&family=Fredoka:wght@500;600;700&family=Lilita+One&family=Nunito:wght@400;600;700;800;900&family=Rubik:wght@600;800;900&family=VT323&display=swap">
 <link rel="stylesheet" href="app.css">
 <link rel="icon" href="img-splat.png">
+<link rel="icon" type="image/png" sizes="192x192" href="img-app-192.png">
+<link rel="apple-touch-icon" href="img-apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dis-Toon-elodeon">
+<meta name="application-name" content="Dis-Toon-elodeon">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body class="hub-home">
 <a class="skip" href="#app" data-jump="app">Skip to content</a>
@@ -20,6 +28,7 @@
     <a class="brand" id="brand" href="#home" aria-label="Dis-Toon-elodeon home"></a>
     <nav class="topnav" aria-label="Main">
       <a href="#home" data-nav="home">Home</a>
+      <a href="#live" data-nav="live" class="nav-live"><span class="live-dot" aria-hidden="true"></span>Live TV</a>
       <button type="button" data-sheet="open" data-nav="networks">Networks</button>
       <a href="#mylist" data-nav="mylist">My List</a>
     </nav>
@@ -33,6 +42,7 @@
 
 <nav class="tabbar" aria-label="Tabs">
   <a href="#home" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 12 4l9 7.2V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" fill="currentColor"/></svg><span>Home</span></a>
+  <a href="#live" data-tab="live"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="13.5" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 2.5 12 6l4-3.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12.75" r="2.6" fill="currentColor"/></svg><span>Live TV</span></a>
   <button type="button" data-sheet="open" data-tab="networks"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2" fill="currentColor"/><rect x="13" y="3" width="8" height="8" rx="4" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="4" fill="currentColor"/><rect x="13" y="13" width="8" height="8" rx="2" fill="currentColor"/></svg><span>Networks</span></button>
   <a href="#search" data-tab="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg><span>Search</span></a>
   <a href="#mylist" data-tab="mylist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z" fill="currentColor"/></svg><span>My List</span></a>

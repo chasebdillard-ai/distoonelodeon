@@ -195,6 +195,7 @@
     if (head === 'home' || head === '') return { name: 'home' };
     if (head === 'search') return { name: 'search', q: p.slice(1).join('/') ? decodeURIComponent(p.slice(1).join('/')) : '' };
     if (head === 'mylist') return { name: 'mylist' };
+    if (head === 'live') return LIVE[p[1]] ? { name: 'live', ch: p[1], hub: LIVE[p[1]].theme } : { name: 'live' };
     if (HUBS[head]) {
       if (p[1] === 'show' && p.length > 2) { let s = p.slice(2).join('/'); try { s = decodeURIComponent(s); } catch (e) { /* keep raw */ } return { name: 'show', hub: head, show: s }; }
       if (p[1] === 'all' && (p[2] === 'E' || p[2] === 'M')) return { name: 'all', hub: head, kind: p[2] };
@@ -202,7 +203,7 @@
     }
     return { name: 'home' };
   }
-  let renderSeq = 0;
+  let renderSeq = 0, liveRefocus = null;
   function setTheme(hub) {
     document.body.className = 'hub-' + (hub || 'home');
     const brand = $('#brand');
@@ -218,14 +219,15 @@
   }
   function setTabs() {
     const n = route.name;
-    $$('[data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === (n === 'home' ? 'home' : n === 'search' ? 'search' : n === 'mylist' ? 'mylist' : 'networks')));
-    $$('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === (n === 'home' ? 'home' : n === 'mylist' ? 'mylist' : (n === 'search' ? '' : 'networks'))));
+    $$('[data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === (['home', 'search', 'mylist', 'live'].includes(n) ? n : 'networks')));
+    $$('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === (['home', 'mylist', 'live'].includes(n) ? n : (n === 'search' ? '' : 'networks'))));
   }
   async function render() {
     const seq = ++renderSeq;
     route = parse();
     store.lists = [];
     stopHero();
+    stopLive();
     const app = $('#app');
     setTheme(route.hub);
     setTabs();
@@ -236,7 +238,7 @@
         app.innerHTML = skeleton(3);
         await loadIndex(); await loadAll(); if (seq !== renderSeq) return;
         store.lists = [];
-        if (done(homeHTML())) initHero();
+        if (done(homeHTML())) { initHero(); startHomeLive(); }
       } else if (route.name === 'hub') {
         app.innerHTML = skeleton(3);
         await loadIndex(); await loadHub(route.hub); if (seq !== renderSeq) return;
@@ -259,6 +261,18 @@
         if (inp && !route.q && window.matchMedia('(hover:hover)').matches) inp.focus();
       } else if (route.name === 'mylist') {
         done(myListHTML(), 'My List');
+      } else if (route.name === 'live' && route.ch) {
+        app.innerHTML = skeleton(1);
+        await renderLiveChannel(route.ch, seq);
+        if (seq !== renderSeq) return;
+        const want = liveRefocus; liveRefocus = null;
+        if (want) { const b = $('[data-chan="' + want + '"]'); if (b) { b.focus({ preventScroll: true }); if (window.__tvnav) window.__tvnav.focus(b, false); } }
+        else if (window.__tvnav && tvSize()) setTimeout(() => { if (seq !== renderSeq) return; const f = $('#lv-frame iframe') || $('[data-chan]'); if (f) window.__tvnav.focus(f, false); const s = $('#lv-stage'); if (s) window.scrollTo(0, s.getBoundingClientRect().top + window.scrollY); }, 900);
+      } else if (route.name === 'live') {
+        app.innerHTML = skeleton(2);
+        await Promise.all(LIVE_ORDER.map(liveHubsReady)); if (seq !== renderSeq) return;
+        store.lists = [];
+        done(liveGuideHTML(), 'Live TV');
       }
     } catch (e) {
       console.error(e);
@@ -287,6 +301,7 @@
           '<div class="slide-btns"><button type="button" class="btn btn-play" data-l="' + fl + '" data-i="' + i + '"><i aria-hidden="true">▶</i> Play</button>' +
           '<button type="button" class="btn btn-ghost card-add-wide" data-add="' + v.id + '" data-title="' + esc(v.ct) + '"><i>+</i><span class="ttl">My List</span></button></div></div></article>';
       }).join('') + '</div><div class="dots" id="hero-dots">' + feat.map((v, i) => '<button type="button" class="dot" data-dot="' + i + '" aria-label="Show slide ' + (i + 1) + '"></button>').join('') + '</div></section>';
+    h += liveRailHTML();
     h += '<p class="home-tag">Disney <span>·</span> Cartoon Network <span>·</span> Nickelodeon. Full episodes &amp; marathons, free.</p>';
     h += cwRail();
     h += '<section class="nets" aria-labelledby="nets-h"><div class="rail-head"><h2 id="nets-h"><span>Networks</span></h2></div><div class="net-grid">' +
@@ -440,7 +455,7 @@
   /* ---------- networks sheet ---------- */
   function openSheet() {
     loadIndex().then(() => {
-      $('#sheet-list').innerHTML = ORDER.map((k) => { const s = stats(k); return '<a class="sheet-row net-' + k + '" href="#' + k + '"><span class="net-logo"><img src="' + HUBS[k].logo + '" alt=""></span><span class="sr-txt"><b>' + esc(HUBS[k].name) + '</b><small>' + fmtNum(s.episodes) + ' episodes · ' + fmtNum(s.marathons) + ' marathons</small></span><span aria-hidden="true" class="sr-go">›</span></a>'; }).join('');
+      $('#sheet-list').innerHTML = '<a class="sheet-row sheet-live" href="#live"><span class="net-logo">' + liveBadge() + '</span><span class="sr-txt"><b>Live TV</b><small>Nickelodeon TV · Disney TV · Cartoon Network TV, 24/7</small></span><span aria-hidden="true" class="sr-go">›</span></a>' + ORDER.map((k) => { const s = stats(k); return '<a class="sheet-row net-' + k + '" href="#' + k + '"><span class="net-logo"><img src="' + HUBS[k].logo + '" alt=""></span><span class="sr-txt"><b>' + esc(HUBS[k].name) + '</b><small>' + fmtNum(s.episodes) + ' episodes · ' + fmtNum(s.marathons) + ' marathons</small></span><span aria-hidden="true" class="sr-go">›</span></a>'; }).join('');
     });
     const sh = $('#sheet'); sh.hidden = false; requestAnimationFrame(() => sh.classList.add('on'));
     document.body.classList.add('noscroll');
@@ -561,11 +576,281 @@
     if (P.lastFocus && document.contains(P.lastFocus)) try { P.lastFocus.focus({ preventScroll: true }); } catch (e) { /* */ }
   }
 
+  /* ---------- live TV: deterministic 24/7 channels on Eastern time ---------- */
+  const TZ = 'America/New_York';
+  const LIVE_ORDER = ['nick', 'disney', 'cn'];
+  const LIVE = {
+    nick: { name: 'Nickelodeon TV', short: 'Nick TV', theme: 'nick', logo: HUBS.nick.logo, hubs: ['nick', 'nickjr', 'nickrewind'],
+      blocks: [{ h: 0, pool: ['nick', 'nickrewind'], label: 'Nickelodeon TV' }, { h: 6, pool: ['nickjr'], label: 'Nick Jr. on Nickelodeon TV', jr: 'nickjr' }, { h: 11, pool: ['nick'], label: 'Nickelodeon TV' }] },
+    disney: { name: 'Disney TV', short: 'Disney TV', theme: 'disney', logo: HUBS.disney.logo, hubs: ['disney', 'disneyjr'],
+      blocks: [{ h: 0, pool: ['disney'], label: 'Disney TV' }, { h: 6, pool: ['disneyjr'], label: 'Disney Jr. Mornings', jr: 'disneyjr' }, { h: 11, pool: ['disney'], label: 'Disney TV' }] },
+    cn: { name: 'Cartoon Network TV', short: 'CN TV', theme: 'cn', logo: HUBS.cn.logo, hubs: ['cn'],
+      blocks: [{ h: 0, pool: ['cn'], label: 'Cartoon Network TV' }] }
+  };
+  const MIN_D = 120, MAX_D = 3 * 3600 + 300;
+  const etFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  function etParts(ms) { const o = {}; etFmt.formatToParts(new Date(ms)).forEach((p) => (o[p.type] = p.value)); return { y: +o.year, m: +o.month, d: +o.day, h: (+o.hour) % 24, mi: +o.minute, s: +o.second }; }
+  function etOffset(ms) { const p = etParts(ms); return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000; }
+  function etTime(y, m, d, h) { const g = Date.UTC(y, m - 1, d, h); let t = g - etOffset(g); t = g - etOffset(t); return t; } // epoch ms of ET wall clock y-m-d h:00
+  function etDayKey(ms) { const p = etParts(ms); return p.y + '-' + String(p.m).padStart(2, '0') + '-' + String(p.d).padStart(2, '0'); }
+  function dayAdd(key, n) { const a = key.split('-').map(Number); return new Date(Date.UTC(a[0], a[1] - 1, a[2] + n)).toISOString().slice(0, 10); }
+  function seedOf(str) { let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
+  function mulberry(a) { return function () { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function shuffle(arr, rnd) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function livePool(keys) {
+    const out = [];
+    keys.forEach((k) => { const h = store.hubs[k]; if (h && !h.error) h.videos.forEach((v) => { if (v.d >= MIN_D && v.d <= MAX_D) out.push(v); }); });
+    return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+  const schedCache = new Map();
+  function liveDay(ch, key) {
+    const ck = ch + '|' + key; if (schedCache.has(ck)) return schedCache.get(ck);
+    const cfg = LIVE[ch]; const a = key.split('-').map(Number); const nx = dayAdd(key, 1).split('-').map(Number);
+    const rnd = mulberry(seedOf('dtn-live|' + ch + '|' + key));
+    const bounds = cfg.blocks.map((b) => etTime(a[0], a[1], a[2], b.h)).concat([etTime(nx[0], nx[1], nx[2], 0)]);
+    const used = new Set(); const items = [];
+    cfg.blocks.forEach((b, bi) => {
+      const start = bounds[bi], end = bounds[bi + 1];
+      const pool = livePool(b.pool);
+      if (!pool.length) return;
+      let cand = shuffle(pool.filter((v) => v.k === 'E'), rnd).concat(shuffle(pool.filter((v) => v.k !== 'E'), rnd));
+      let ci = 0, t = start, guard = 0;
+      while (t < end && guard++ < 5000) {
+        let v = null;
+        while (ci < cand.length) { const c = cand[ci++]; if (!used.has(c.id)) { v = c; break; } }
+        if (!v) { // pool exhausted for today: allow repeats, keep E-first order
+          cand.forEach((c) => used.delete(c.id)); ci = 0;
+          cand = shuffle(pool.filter((x) => x.k === 'E'), rnd).concat(shuffle(pool.filter((x) => x.k !== 'E'), rnd));
+          if (items.length && cand.length > 1 && cand[0].id === items[items.length - 1].v.id) cand.push(cand.shift());
+          continue;
+        }
+        used.add(v.id);
+        const e = Math.min(end, t + v.d * 1000);
+        items.push({ ch, v, s: t, e, b: bi, cut: e < t + v.d * 1000 });
+        t = e;
+      }
+    });
+    schedCache.set(ck, items);
+    return items;
+  }
+  function liveAt(ch, t) { const it = liveDay(ch, etDayKey(t)); for (let i = 0; i < it.length; i++) if (it[i].s <= t && t < it[i].e) return it[i]; return null; }
+  function liveNext(ch, t, n) {
+    const key = etDayKey(t); let out = liveDay(ch, key).filter((x) => x.e > t);
+    if (out.length < n) out = out.concat(liveDay(ch, dayAdd(key, 1)));
+    return out.slice(0, n);
+  }
+  const liveHubsReady = (ch) => Promise.all(LIVE[ch].hubs.map(loadHub));
+  const blockLabel = (it) => (it ? LIVE[it.ch].blocks[it.b].label : '');
+  const isJr = (it) => !!(it && LIVE[it.ch].blocks[it.b].jr);
+  const tShort = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
+  const tZone = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const tET = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const sameAsET = () => etOffset(Date.now()) === -new Date().getTimezoneOffset() * 60000;
+  const showName = (v) => (isMore(v.show) ? HUBS[v.hub].name : v.show);
+  const pct = (it, t) => Math.max(0, Math.min(100, ((t - it.s) / Math.max(1, it.e - it.s)) * 100));
+  function minsLeft(it, t) { const m = Math.max(1, Math.round((it.e - t) / 60000)); return m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm left' : m + ' min left'; }
+  const liveBadge = () => '<span class="live-badge"><i aria-hidden="true"></i>LIVE</span>';
+
+  function liveCard(ch, t) {
+    const cfg = LIVE[ch]; const it = liveAt(ch, t); const nx = it ? liveNext(ch, it.e, 1)[0] : null;
+    const lbl = it ? 'Watch ' + cfg.name + ' live: ' + it.v.ct : 'Watch ' + cfg.name;
+    return '<a class="live-card lc-' + ch + (isJr(it) ? ' lc-jr' : '') + '" href="#live/' + ch + '" data-live="' + ch + '" aria-label="' + esc(lbl) + '">' +
+      '<span class="thumb lc-thumb">' + (it ? '<img src="' + thumb(it.v.id) + '" alt="" loading="lazy" decoding="async" width="320" height="180">' : '') + liveBadge() +
+      '<span class="lc-logo"><img src="' + (isJr(it) ? HUBS[LIVE[ch].blocks[it.b].jr].logo : cfg.logo) + '" alt=""></span></span>' +
+      '<span class="lc-body"><span class="lc-ch">' + esc(it ? blockLabel(it) : cfg.name) + '</span>' +
+      '<span class="lc-title">' + esc(it ? it.v.ct : 'Off air') + '</span>' +
+      (it ? '<span class="lc-meta">' + esc(showName(it.v)) + ' · <span class="lc-left">' + minsLeft(it, t) + '</span></span>' : '') +
+      '<span class="lprog"><b style="width:' + (it ? pct(it, t).toFixed(1) : 0) + '%"></b></span>' +
+      (nx ? '<span class="lc-next">Next ' + esc(tShort.format(nx.s)) + ': ' + esc(nx.v.ct) + '</span>' : '') + '</span></a>';
+  }
+  function liveRailHTML() {
+    const t = Date.now();
+    return '<section class="live-rail" id="live-rail" aria-labelledby="lr-h"><div class="rail-head"><h2 id="lr-h">' + liveBadge() + '<span>Live now</span></h2><a class="see" href="#live">Full guide<span aria-hidden="true"> ›</span></a></div>' +
+      '<div class="live-track">' + LIVE_ORDER.map((ch) => liveCard(ch, t)).join('') + '</div></section>';
+  }
+  function liveGuideHTML() {
+    const t = Date.now(); const zone = tZone.formatToParts(t).find((p) => p.type === 'timeZoneName');
+    let o = '<section class="sect sect-top live-guide"><div class="rail-head"><h1>' + liveBadge() + '<span>Live TV</span></h1></div>' +
+      '<p class="lg-sub">Three channels, 24/7. Everyone watches the same thing at the same time. Times shown in your time zone' + (zone ? ' (' + esc(zone.value) + ')' : '') + '; mornings 6–11 AM Eastern are for little ones.</p>';
+    LIVE_ORDER.forEach((ch) => {
+      const cfg = LIVE[ch]; const list = liveNext(ch, t, 7);
+      o += '<section class="lg-row lg-' + ch + '" aria-label="' + esc(cfg.name) + '"><div class="lg-head"><span class="lg-logo"><img src="' + cfg.logo + '" alt=""></span><h2>' + esc(cfg.name) + '</h2><a class="btn lg-watch" href="#live/' + ch + '"><i aria-hidden="true">▶</i> Watch live</a></div>' +
+        '<div class="lg-body">' + liveCard(ch, t) + '<ol class="lg-list">' + list.slice(1).map((it) => guideRow(it, t)).join('') + '</ol></div></section>';
+    });
+    return o + '</section>';
+  }
+  function guideRow(it, t) {
+    const now = it.s <= t && t < it.e; const et = !sameAsET();
+    return '<li class="gr' + (now ? ' gr-now' : '') + (isJr(it) ? ' gr-jr' : '') + '"><span class="gr-time"><b>' + esc(tShort.format(it.s)) + '</b>' + (et ? '<small>' + esc(tET.format(it.s)) + '</small>' : '') + '</span>' +
+      '<span class="gr-txt"><b>' + esc(it.v.ct) + '</b><small>' + esc([showName(it.v), it.cut ? fmtDur((it.e - it.s) / 1000) + ' (cut)' : fmtDur(it.v.d), isJr(it) ? blockLabel(it) : ''].filter(Boolean).join(' · ')) + '</small></span>' +
+      (now ? liveBadge() : '') + '</li>';
+  }
+  function liveChannelHTML(ch) {
+    const cfg = LIVE[ch]; const i = LIVE_ORDER.indexOf(ch);
+    const up = LIVE_ORDER[(i + 1) % LIVE_ORDER.length], dn = LIVE_ORDER[(i + LIVE_ORDER.length - 1) % LIVE_ORDER.length];
+    return '<section class="live-ch lv-' + ch + '"><div class="lv-main">' +
+      '<div class="lv-stage" id="lv-stage"><div class="lv-frame" id="lv-frame"></div>' +
+      '<div class="lv-bug" aria-hidden="true">' + liveBadge() + '<span id="lv-bug-t">' + esc(cfg.name) + '</span></div>' +
+      '<div class="lv-slate" id="lv-slate" hidden><div><span class="lv-slate-logo"><img src="' + cfg.logo + '" alt=""></span><p id="lv-slate-t"></p></div></div></div>' +
+      '<div class="lv-info"><div class="lv-now"><p class="lv-block">' + liveBadge() + '<span id="lv-block">' + esc(cfg.name) + '</span></p>' +
+      '<h1 class="lv-title" id="lv-title">Tuning in…</h1><p class="lv-meta" id="lv-meta"></p><span class="lprog lv-prog"><b id="lv-prog"></b></span>' +
+      '<p class="lv-next" id="lv-next"></p></div>' +
+      '<div class="lv-ctl" role="group" aria-label="Channel controls">' +
+      '<button type="button" class="btn btn-ghost lv-chbtn" data-chan="' + dn + '" aria-label="Channel down: ' + esc(LIVE[dn].name) + '"><i aria-hidden="true">▼</i> CH <small>' + esc(LIVE[dn].short) + '</small></button>' +
+      '<button type="button" class="btn btn-ghost lv-chbtn" data-chan="' + up + '" aria-label="Channel up: ' + esc(LIVE[up].name) + '"><i aria-hidden="true">▲</i> CH <small>' + esc(LIVE[up].short) + '</small></button>' +
+      '<a class="btn btn-ghost" href="#live">Guide</a></div></div></div>' +
+      '<section class="lv-guide" aria-labelledby="lvg-h"><h2 id="lvg-h">On ' + esc(cfg.name) + '</h2><ol class="lg-list" id="lv-guide"></ol></section></section>';
+  }
+
+  /* live player engine */
+  const L = { ch: null, item: null, vid: null, filler: false, yt: null, ytReady: false, tick: null, skips: 0, bad: new Set(), waitUntil: 0, lastPaint: 0, homeTick: null, iframe: false };
+  function stopLive() {
+    clearInterval(L.tick); clearInterval(L.homeTick); L.tick = L.homeTick = null;
+    try { if (L.yt && L.yt.destroy) L.yt.destroy(); } catch (e) { /* */ }
+    L.yt = null; L.ytReady = false; L.ch = null; L.item = null; L.vid = null; L.filler = false; L.iframe = false;
+  }
+  function startHomeLive() {
+    clearInterval(L.homeTick);
+    L.homeTick = setInterval(() => {
+      if (document.hidden) return;
+      const r = $('#live-rail'); if (!r) return;
+      const t = Date.now(); const tr = r.querySelector('.live-track'); const sl = tr.scrollLeft;
+      const f = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.live : null;
+      tr.innerHTML = LIVE_ORDER.map((ch) => liveCard(ch, t)).join(''); tr.scrollLeft = sl;
+      if (f) { const el = tr.querySelector('[data-live="' + f + '"]'); if (el) { el.focus({ preventScroll: true }); if (window.__tvnav) window.__tvnav.focus(el, false); } }
+    }, 30000);
+  }
+  function tuneLive(ch) {
+    L.ch = ch; L.skips = 0; L.waitUntil = 0;
+    syncLive(true);
+    clearInterval(L.tick); L.tick = setInterval(() => syncLive(false), 1000);
+  }
+  function liveFrameSrc(id, start) { return 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&start=' + Math.floor(start) + '&origin=' + encodeURIComponent(location.origin); }
+  function liveLoad(v, start) {
+    L.vid = v.id; start = Math.max(0, Math.floor(start));
+    if (L.yt && L.ytReady && typeof L.yt.loadVideoById === 'function') { try { L.yt.loadVideoById({ videoId: v.id, startSeconds: start }); return; } catch (e) { /* recreate */ } }
+    const fr = $('#lv-frame'); if (!fr) return;
+    if (window.YT && window.YT.Player && !L.iframe) {
+      fr.innerHTML = '<div id="lv-yt"></div>'; L.ytReady = false;
+      L.yt = new YT.Player('lv-yt', { host: 'https://www.youtube-nocookie.com', videoId: v.id, width: '100%', height: '100%',
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, start: start, origin: location.origin },
+        events: { onReady: (e) => { L.ytReady = true; try { e.target.playVideo(); } catch (x) { /* */ } }, onStateChange: onLiveState, onError: onLiveError } });
+      return;
+    }
+    // API not available (yet): plain embed; the 1s clock still advances the schedule.
+    fr.innerHTML = '<iframe id="lv-if" src="' + liveFrameSrc(v.id, start) + '" title="' + esc(v.ct) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+    if (!L.iframe) {
+      const want = L.ch;
+      loadYT().then(() => {
+        if (L.ch !== want || !$('#lv-if')) return;
+        try { L.yt = new YT.Player('lv-if', { events: { onReady: () => { L.ytReady = true; }, onStateChange: onLiveState, onError: onLiveError } }); } catch (e) { L.iframe = true; }
+      }).catch(() => { L.iframe = true; });
+    }
+  }
+  function slate(msg) { const s = $('#lv-slate'); if (!s) return; if (msg) { $('#lv-slate-t').textContent = msg; s.hidden = false; } else s.hidden = true; }
+  function syncLive(force) {
+    if (!L.ch || !$('#lv-frame')) return;
+    const t = Date.now();
+    if (L.waitUntil && t < L.waitUntil) { paintLive(t); return; }
+    const it = liveAt(L.ch, t);
+    if (!it) { slate('Off air right now. Check back soon.'); paintLive(t); return; }
+    if (force || !L.item || it.s !== L.item.s || L.waitUntil) {
+      const fresh = !L.item || it.s !== L.item.s;
+      L.item = it; L.waitUntil = 0;
+      if (fresh) L.skips = 0;
+      const off = (t - it.s) / 1000;
+      if (L.bad.has(it.v.id)) { playFiller(it); }
+      else if (L.vid === it.v.id && L.yt && L.ytReady && !force) { L.filler = false; slate(null); try { L.yt.seekTo(off, true); L.yt.playVideo(); } catch (e) { /* */ } }
+      else { L.filler = false; slate(null); liveLoad(it.v, off); }
+      paintLive(t, true);
+      return;
+    }
+    if (t - L.lastPaint > 900) paintLive(t);
+  }
+  function playFiller(it) {
+    // The scheduled program can't play here: run the following programs from their start until the clock catches up.
+    const cands = liveNext(L.ch, it.e, 12).filter((x) => !L.bad.has(x.v.id) && x.v.id !== L.vid);
+    const f = cands[0];
+    if (!f || L.skips > 3) { giveUp(); return; }
+    L.filler = true; slate(null); liveLoad(f.v, 0);
+  }
+  function giveUp() {
+    const it = L.item; L.waitUntil = it ? it.e : Date.now() + 60000;
+    try { if (L.yt && L.yt.stopVideo) L.yt.stopVideo(); } catch (e) { /* */ }
+    slate('We\u2019re having trouble playing this channel here. We\u2019ll try again at ' + tShort.format(L.waitUntil) + '.');
+  }
+  function onLiveError(e) {
+    if (!L.ch) return;
+    if (L.vid) L.bad.add(L.vid);
+    L.skips++;
+    if (L.skips > 3) { giveUp(); return; }
+    toast('That one can\u2019t play here. Skipping ahead…');
+    playFiller(L.item || liveAt(L.ch, Date.now()));
+  }
+  function onLiveState(e) {
+    if (!window.YT || !L.ch) return;
+    const t = Date.now();
+    if (e.data === YT.PlayerState.PLAYING) {
+      L.skips = 0; slate(null);
+      if (!L.filler && L.item && L.vid === L.item.v.id) {
+        const want = (t - L.item.s) / 1000;
+        try { const cur = L.yt.getCurrentTime(); if (Math.abs(cur - want) > 6 && want < L.item.v.d - 5) L.yt.seekTo(want, true); } catch (x) { /* */ }
+      }
+    } else if (e.data === YT.PlayerState.ENDED) {
+      if (L.filler) { const it = liveNext(L.ch, t, 12).find((x) => x.v.id !== L.vid && !L.bad.has(x.v.id) && x.s > (L.item ? L.item.s : 0)); if (it && L.item && t < L.item.e - 2000) { liveLoad(it.v, 0); return; } }
+      if (L.item && t < L.item.e - 2000) { const n = liveNext(L.ch, L.item.e, 1)[0]; slate(n ? 'Up next at ' + tShort.format(n.s) + ': ' + n.v.ct : 'Up next…'); }
+    }
+  }
+  function paintLive(t, full) {
+    L.lastPaint = t; const it = L.item; if (!it || !$('#lv-title')) return;
+    const cfg = LIVE[L.ch];
+    $('#lv-prog').style.width = pct(it, t).toFixed(2) + '%';
+    if (!full) { const m = $('#lv-left'); if (m) m.textContent = minsLeft(it, t); return; }
+    const lbl = blockLabel(it);
+    $('#lv-block').textContent = lbl; $('#lv-bug-t').textContent = lbl;
+    $('#lv-title').textContent = it.v.ct; $('#lv-title').title = it.v.t;
+    const et = !sameAsET();
+    $('#lv-meta').innerHTML = esc(showName(it.v)) + ' · ' + esc(tShort.format(it.s)) + '–' + esc(tZone.format(it.e)) + (et ? ' <small>(' + esc(tET.format(it.s)) + ')</small>' : '') + ' · <span id="lv-left">' + minsLeft(it, t) + '</span>';
+    const nx = liveNext(L.ch, it.e, 1)[0];
+    $('#lv-next').innerHTML = nx ? '<b>Next</b> ' + esc(tShort.format(nx.s)) + ' · ' + esc(nx.v.ct) + (isJr(nx) !== isJr(it) ? ' <small>(' + esc(blockLabel(nx)) + ')</small>' : '') : '';
+    $('#lv-guide').innerHTML = liveNext(L.ch, t, 9).map((x) => guideRow(x, t)).join('');
+    const st = $('.live-ch'); if (st) st.classList.toggle('is-jr', isJr(it));
+    document.title = lbl + ' · Live · Dis-Toon-elodeon';
+    void cfg;
+  }
+  const tvSize = () => window.matchMedia('(min-width: 880px) and (max-height: 620px)').matches;
+  async function renderLiveChannel(ch, seq) {
+    await liveHubsReady(ch); if (seq !== renderSeq) return false;
+    $('#app').innerHTML = liveChannelHTML(ch);
+    document.body.classList.add('page-live');
+    if (tvSize()) { const s = $('#lv-stage'); if (s) window.scrollTo(0, s.getBoundingClientRect().top + window.scrollY); }
+    try { await loadYT(); } catch (e) { L.iframe = true; }
+    if (seq !== renderSeq) return false;
+    tuneLive(ch);
+    return true;
+  }
+  function chanKey(e) {
+    if (route.name !== 'live' || !route.ch) return;
+    const k = e.key;
+    if (k === 'ChannelUp' || k === 'PageUp' || k === 'ChannelDown' || k === 'PageDown') {
+      const i = LIVE_ORDER.indexOf(route.ch); const d = (k === 'ChannelUp' || k === 'PageUp') ? 1 : -1;
+      e.preventDefault(); location.hash = '#live/' + LIVE_ORDER[(i + d + LIVE_ORDER.length) % LIVE_ORDER.length];
+    }
+  }
+  function liveDrift() {
+    if (!L.ch || !L.item || L.filler || !L.yt || !L.ytReady || L.vid !== L.item.v.id) return;
+    try { const want = (Date.now() - L.item.s) / 1000; const cur = L.yt.getCurrentTime(); if (Math.abs(cur - want) > 6 && want < L.item.v.d - 5) L.yt.seekTo(want, true); } catch (e) { /* */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && L.ch) { syncLive(false); liveDrift(); } });
+  document.addEventListener('keydown', chanKey);
+  window.__dtnLive = { liveDay, liveAt, liveNext, etDayKey, etTime, LIVE, liveHubsReady, L, onLiveError, syncLive };
+
   /* ---------- events ---------- */
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-l],[data-add],[data-cwrm],[data-more],[data-scroll],[data-sheet],[data-sf],[data-pjump],[data-pclose],[data-jump],.sheet-row');
+    const t = e.target.closest('[data-chan],[data-l],[data-add],[data-cwrm],[data-more],[data-scroll],[data-sheet],[data-sf],[data-pjump],[data-pclose],[data-jump],.sheet-row');
     if (!t) return;
     if (t.matches('.sheet-row')) { closeSheet(); return; }
+    if (t.dataset.chan) { e.preventDefault(); const cur = t.dataset.chan; const i = LIVE_ORDER.indexOf(route.ch); const up = LIVE_ORDER[(i + 1) % LIVE_ORDER.length]; liveRefocus = cur === up ? LIVE_ORDER[(LIVE_ORDER.indexOf(cur) + 1) % LIVE_ORDER.length] : LIVE_ORDER[(LIVE_ORDER.indexOf(cur) + LIVE_ORDER.length - 1) % LIVE_ORDER.length]; location.hash = '#live/' + cur; return; }
     if (t.dataset.pclose !== undefined) { closePlayer(); return; }
     if (t.dataset.add) { e.preventDefault(); const v = videoIndex.get(t.dataset.add) || getList().find((x) => x.id === t.dataset.add); if (v) toggleList(v); return; }
     if (t.dataset.l !== undefined) { e.preventDefault(); openPlayer(store.lists[+t.dataset.l], +t.dataset.i || 0); return; }
