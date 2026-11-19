@@ -35,6 +35,13 @@
    "episodes": 150,
    "marathons": 27,
    "shows": 21
+  },
+  "pbskids": {
+   "videos": 870,
+   "episodes": 606,
+   "marathons": 222,
+   "movies": 42,
+   "shows": 39
   }
  }
 }

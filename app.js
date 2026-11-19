@@ -3,14 +3,15 @@
   'use strict';
 
   /* ---------- config (brand identity only, no content) ---------- */
-  const ORDER = ['disney', 'disneyjr', 'cn', 'nick', 'nickjr', 'nickrewind'];
+  const ORDER = ['disney', 'disneyjr', 'cn', 'nick', 'nickjr', 'nickrewind', 'pbskids'];
   const HUBS = {
     disney: { name: 'Disney Channel', short: 'Disney', logo: 'img-disney.png', tag: 'Your Disney Channel favorites, full episodes on demand.' },
     disneyjr: { name: 'Disney Jr.', short: 'Disney Jr.', logo: 'img-disneyjr.png', tag: 'Big adventures for little ones. Press play and sing along!' },
     cn: { name: 'Cartoon Network', short: 'Cartoon Network', logo: 'img-cn.png', tag: 'Cartoons that rule. Full episodes and marathons straight from the CN vault.' },
     nick: { name: 'Nickelodeon', short: 'Nick', logo: 'img-nick.png', tag: 'Get slimed with full episodes and mega-marathons of your Nick faves.' },
     nickjr: { name: 'Nick Jr.', short: 'Nick Jr.', logo: 'img-nickjr.png', tag: 'Hours of preschool fun with all your Nick Jr. friends.' },
-    nickrewind: { name: 'NickRewind', short: 'Rewind', logo: 'img-nickrewind.png', tag: 'Be kind, rewind. The classic Nick shows you grew up with.' }
+    nickrewind: { name: 'NickRewind', short: 'Rewind', logo: 'img-nickrewind.png', tag: 'Be kind, rewind. The classic Nick shows you grew up with.' },
+    pbskids: { name: 'PBS KIDS', short: 'PBS KIDS', logo: 'img-pbskids.png', tag: 'Full episodes and full movies from your PBS KIDS friends, sorted by show and in order.', ordered: true }
   };
   const PAGE = 60;
   const RAIL = 20;
@@ -30,7 +31,7 @@
   }
   const fmtNum = (n) => (+n || 0).toLocaleString('en-US');
   const thumb = (id, q) => 'https://i.ytimg.com/vi/' + id + '/' + (q || 'mqdefault') + '.jpg';
-  const kindLabel = (k) => (k === 'M' ? 'Marathon' : 'Full Episode');
+  const kindLabel = (k) => (k === 'M' ? 'Marathon' : k === 'F' ? 'Full Movie' : 'Full Episode');
   const isMore = (s) => /^More /.test(s);
   function cleanTitle(t, show) {
     const parts = String(t).split(/\s+\|\s+/).map((x) => x.trim()).filter(Boolean);
@@ -40,6 +41,23 @@
     p = p.replace(/^full episodes?\s*[:\-–—]\s*/i, '');
     p = p.replace(/[\s:\-–—]*\bfull episode!?\s*$/i, '').replace(/[\s:\-–—|,]+$/, '').replace(/\s{2,}/g, ' ').trim();
     return p.length >= 4 ? p : t;
+  }
+  const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu;
+  const PBS_JUNK = /^(pbs kids|cartoons? for kids|kids cartoons?|kids movies?|videos? for kids|kids videos?|stem shows? for kids|full episodes?|full eps?|full movie|hd|.*\bpodcast)$/i;
+  function pbsTitle(t, show) {
+    const sh = String(show || '').replace(/ en Español$/, '').toLowerCase();
+    const parts = String(t).replace(EMOJI, ' ').split(/\s*[|｜]\s*/).map((x) => x
+      .replace(/\b(full[\s-]*(episodes?|eps?|movie|length)|episodios? completos?|new show|compilation|movie)\b!?/ig, ' ')
+      .replace(/\(\s*\)/g, ' ').replace(/\s{2,}/g, ' ').trim().replace(/^[\s:\-–—!,]+|[\s:\-–—,]+$/g, '').trim());
+    for (let i = 0; i < parts.length; i++) {
+      let p = parts[i]; if (!p) continue;
+      const low = p.toLowerCase();
+      if (PBS_JUNK.test(p) || (sh && (low === sh || low === sh.replace(/!$/, '')))) continue;
+      if (sh && low.startsWith(sh + ' ') && i === 0 && parts.slice(1).some((q) => q && !PBS_JUNK.test(q))) continue;
+      if (sh && low.startsWith(sh + ':')) p = p.slice(sh.length + 1).trim() || p;
+      return p.length >= 3 ? p : t;
+    }
+    return String(t).replace(EMOJI, '').trim();
   }
   function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* quota */ } }
@@ -56,14 +74,16 @@
     if (store.hubs[key]) return Promise.resolve(store.hubs[key]);
     if (!store.pending[key]) {
       store.pending[key] = fetch('data-' + key + '.json', { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((j) => {
-        const videos = (j.v || []).map((a) => ({ id: a[0], t: a[1], ct: cleanTitle(a[1], a[4]), d: a[2] || 0, date: a[3] || '', show: a[4] || '', k: a[5] === 'M' ? 'M' : 'E', ch: a[6] || '', hub: key }));
+        const ord = HUBS[key] && HUBS[key].ordered;
+        const videos = (j.v || []).map((a) => ({ id: a[0], t: a[1], ct: ord ? pbsTitle(a[1], a[4]) : cleanTitle(a[1], a[4]), d: a[2] || 0, date: a[3] || '', show: a[4] || '', k: a[5] === 'M' ? 'M' : a[5] === 'F' ? 'F' : 'E', ch: a[6] || '', hub: key, o: a[7] == null ? null : +a[7], lbl: a[8] || '' }));
         const byShow = new Map();
         videos.forEach((v) => { if (!byShow.has(v.show)) byShow.set(v.show, []); byShow.get(v.show).push(v); });
+        if (ord) byShow.forEach((L) => L.sort((a, b) => (a.o == null ? 1e9 : a.o) - (b.o == null ? 1e9 : b.o))); // watch order: S/E or oldest -> newest
         const shows = (j.shows || []).filter((s) => byShow.has(s.s));
         const ordered = shows.filter((s) => !isMore(s.s)).concat(shows.filter((s) => isMore(s.s)));
-        const hub = { key, videos, E: videos.filter((v) => v.k === 'E'), M: videos.filter((v) => v.k === 'M'), byShow, shows: ordered };
+        const hub = { key, videos, E: videos.filter((v) => v.k === 'E'), M: videos.filter((v) => v.k === 'M'), F: videos.filter((v) => v.k === 'F'), byShow, shows: ordered };
         store.hubs[key] = hub; return hub;
-      }).catch((e) => { delete store.pending[key]; const hub = { key, videos: [], E: [], M: [], byShow: new Map(), shows: [], error: true }; return hub; });
+      }).catch((e) => { delete store.pending[key]; const hub = { key, videos: [], E: [], M: [], F: [], byShow: new Map(), shows: [], error: true }; return hub; });
     }
     return store.pending[key];
   }
@@ -72,8 +92,8 @@
   function stats(key) {
     const s = (store.index && store.index.hubs && store.index.hubs[key]) || null;
     const h = store.hubs[key];
-    if (h && !h.error) return { videos: h.videos.length, episodes: h.E.length, marathons: h.M.length, shows: h.shows.filter((x) => !isMore(x.s)).length || h.shows.length };
-    return s || { videos: 0, episodes: 0, marathons: 0, shows: 0 };
+    if (h && !h.error) return { videos: h.videos.length, episodes: h.E.length, marathons: h.M.length, movies: h.F.length, shows: h.shows.filter((x) => !isMore(x.s)).length || h.shows.length };
+    return s || { videos: 0, episodes: 0, marathons: 0, movies: 0, shows: 0 };
   }
   function mixRoundRobin(lists, n) {
     const out = []; const idx = lists.map(() => 0);
@@ -86,7 +106,7 @@
   }
 
   /* ---------- local state: continue watching + my list ---------- */
-  const pick = (v) => ({ id: v.id, t: v.t, ct: v.ct || cleanTitle(v.t, v.show), d: v.d, date: v.date, show: v.show, k: v.k, ch: v.ch, hub: v.hub });
+  const pick = (v) => ({ id: v.id, t: v.t, ct: v.ct || cleanTitle(v.t, v.show), d: v.d, date: v.date, show: v.show, k: v.k, ch: v.ch, hub: v.hub, lbl: v.lbl || '' });
   const getCW = () => lsGet(LS_CW);
   function saveCW(v, pos) {
     if (!v || !(pos > 0)) return;
@@ -126,7 +146,7 @@
     opts = opts || {};
     remember([v]);
     const lbl = 'Play ' + v.ct + ', ' + v.show + ', ' + kindLabel(v.k) + ', ' + fmtDur(v.d);
-    const meta = [isMore(v.show) ? '' : v.show, fmtDate(v.date)].filter(Boolean).join(' · ');
+    const meta = (opts.inshow ? [v.lbl || (v.n ? '#' + v.n : ''), fmtDate(v.date)] : [isMore(v.show) ? '' : v.show, v.lbl, fmtDate(v.date)]).filter(Boolean).join(' · ');
     const prog = opts.cw && v.d ? '<span class="prog"><b style="width:' + Math.min(100, Math.round((v.pos / v.d) * 100)) + '%"></b></span>' : '';
     const side = opts.cw
       ? '<button type="button" class="card-x" data-cwrm="' + v.id + '" aria-label="Remove ' + esc(v.ct) + ' from Continue Watching"><i>×</i></button>'
@@ -134,7 +154,7 @@
     return '<article class="card k' + v.k + '">' +
       '<button type="button" class="card-hit" data-l="' + l + '" data-i="' + i + '" aria-label="' + esc(lbl) + '" title="' + esc(v.t) + '">' +
       '<span class="thumb"><img src="' + thumb(v.id) + '" alt="" loading="lazy" decoding="async" width="320" height="180">' +
-      '<span class="kind">' + (v.k === 'M' ? 'Marathon' : 'Full Episode') + '</span>' +
+      '<span class="kind">' + kindLabel(v.k) + '</span>' +
       '<span class="dur">' + fmtDur(v.d) + '</span>' + (opts.net ? netBadge(v.hub) : '') + prog + '</span>' +
       '<span class="cbody"><span class="ctitle">' + esc(v.ct) + '</span><span class="cmeta">' + esc(meta || HUBS[v.hub].name) + '</span></span>' +
       '</button>' + side + '</article>';
@@ -161,7 +181,7 @@
   function grid(list, opts) {
     opts = opts || {};
     const l = reg(list);
-    return '<div class="grid" data-gl="' + l + '"' + (opts.net ? ' data-net="1"' : '') + '>' + list.slice(0, PAGE).map((v, i) => card(v, l, i, opts)).join('') + '</div>' + moreBtn(l, PAGE);
+    return '<div class="grid" data-gl="' + l + '"' + (opts.net ? ' data-net="1"' : '') + (opts.inshow ? ' data-inshow="1"' : '') + '>' + list.slice(0, PAGE).map((v, i) => card(v, l, i, opts)).join('') + '</div>' + moreBtn(l, PAGE);
   }
   function moreBtn(l, shown) {
     const left = store.lists[l].length - shown;
@@ -198,7 +218,7 @@
     if (head === 'live') return LIVE[p[1]] ? { name: 'live', ch: p[1], hub: LIVE[p[1]].theme } : { name: 'live' };
     if (HUBS[head]) {
       if (p[1] === 'show' && p.length > 2) { let s = p.slice(2).join('/'); try { s = decodeURIComponent(s); } catch (e) { /* keep raw */ } return { name: 'show', hub: head, show: s }; }
-      if (p[1] === 'all' && (p[2] === 'E' || p[2] === 'M')) return { name: 'all', hub: head, kind: p[2] };
+      if (p[1] === 'all' && (p[2] === 'E' || p[2] === 'M' || p[2] === 'F')) return { name: 'all', hub: head, kind: p[2] };
       return { name: 'hub', hub: head };
     }
     return { name: 'home' };
@@ -214,7 +234,7 @@
     } else {
       brand.innerHTML = wordmark(); brand.href = '#home'; brand.setAttribute('aria-label', 'Dis-Toon-elodeon home');
     }
-    const tc = { home: '#0b0b12', disney: '#06123a', disneyjr: '#ffffff', cn: '#ffffff', nick: '#ff6600', nickjr: '#5b4bd6', nickrewind: '#1d0a3a' }[hub || 'home'];
+    const tc = { home: '#0b0b12', disney: '#06123a', disneyjr: '#ffffff', cn: '#ffffff', nick: '#ff6600', nickjr: '#5b4bd6', nickrewind: '#1d0a3a', pbskids: '#2638c4' }[hub || 'home'];
     const m = $('meta[name="theme-color"]'); if (m) m.content = tc;
   }
   function setTabs() {
@@ -253,7 +273,7 @@
         app.innerHTML = skeleton(2);
         await loadHub(route.hub); if (seq !== renderSeq) return;
         store.lists = [];
-        done(allHTML(route.hub, route.kind), (route.kind === 'M' ? 'Marathons' : 'Full Episodes') + ' · ' + HUBS[route.hub].name);
+        done(allHTML(route.hub, route.kind), kindTitle(route.kind) + ' · ' + HUBS[route.hub].name);
       } else if (route.name === 'search') {
         done(searchShellHTML(route.q), 'Search');
         const inp = $('#q');
@@ -284,6 +304,7 @@
   }
 
   /* ---------- pages ---------- */
+  const kindTitle = (k) => (k === 'M' ? 'Marathons' : k === 'F' ? 'Full Movies' : 'Full Episodes');
   function homeHTML() {
     const hubs = ORDER.map((k) => store.hubs[k]);
     const feat = hubs.map((h) => h.E[0] || h.videos[0]).filter(Boolean);
@@ -302,7 +323,7 @@
           '<button type="button" class="btn btn-ghost card-add-wide" data-add="' + v.id + '" data-title="' + esc(v.ct) + '"><i>+</i><span class="ttl">My List</span></button></div></div></article>';
       }).join('') + '</div><div class="dots" id="hero-dots">' + feat.map((v, i) => '<button type="button" class="dot" data-dot="' + i + '" aria-label="Show slide ' + (i + 1) + '"></button>').join('') + '</div></section>';
     h += liveRailHTML();
-    h += '<p class="home-tag">Disney <span>·</span> Cartoon Network <span>·</span> Nickelodeon. Full episodes &amp; marathons, free.</p>';
+    h += '<p class="home-tag">Disney <span>·</span> Cartoon Network <span>·</span> Nickelodeon <span>·</span> PBS KIDS. Full episodes, movies &amp; marathons, free.</p>';
     h += cwRail();
     h += '<section class="nets" aria-labelledby="nets-h"><div class="rail-head"><h2 id="nets-h"><span>Networks</span></h2></div><div class="net-grid">' +
       ORDER.map((k) => { const s = stats(k); return '<a class="net-tile net-' + k + '" href="#' + k + '" aria-label="' + esc(HUBS[k].name) + ', ' + fmtNum(s.videos) + ' videos"><span class="net-logo"><img src="' + (HUBS[k].logo) + '" alt=""></span><span class="net-count">' + fmtNum(s.videos) + ' videos</span></a>'; }).join('') + '</div></section>';
@@ -322,14 +343,16 @@
       '<ul class="hh-stats">' +
       '<li><b>' + fmtNum(s.videos) + '</b><span>videos</span></li>' +
       '<li><b>' + fmtNum(s.episodes) + '</b><span>full episodes</span></li>' +
-      '<li><b>' + fmtNum(s.marathons) + '</b><span>marathons</span></li>' +
+      (h.F && h.F.length ? '<li><b>' + fmtNum(h.F.length) + '</b><span>full movies</span></li>' : '<li><b>' + fmtNum(s.marathons) + '</b><span>marathons</span></li>') +
       '<li><b>' + fmtNum(s.shows) + '</b><span>shows</span></li></ul>' +
       (newest ? '<button type="button" class="btn btn-play" data-l="' + reg(h.E.length ? h.E : h.videos) + '" data-i="0"><i aria-hidden="true">▶</i> Play newest ' + (newest.k === 'E' ? 'episode' : 'video') + '</button>' : '') +
       '</div>' + (key === 'nick' || key === 'nickjr' ? '<svg class="drip" viewBox="0 0 390 40" preserveAspectRatio="none" aria-hidden="true"><path d="M0 0h390v14c-14 0-14 18-28 18s-10-14-26-14-12 24-30 24-14-22-30-22-12 10-26 10-12-16-28-16-14 26-32 26-14-20-30-20-12 8-26 8-14-18-30-18-12 22-30 22-14-16-28-16-12 10-26 10S16 14 0 14z"/></svg>' : '') + '</section>';
     if (h.error) o += '<div class="empty"><p>Could not load ' + esc(meta.name) + ' right now.</p></div>';
-    o += '<nav class="subtabs" aria-label="' + esc(meta.name) + ' sections"><a href="#sec-E" data-jump="sec-E">Full Episodes</a><a href="#sec-M" data-jump="sec-M">Marathons</a><a href="#sec-shows" data-jump="sec-shows">Shows</a></nav>';
+    const hasF = h.F && h.F.length;
+    o += '<nav class="subtabs" aria-label="' + esc(meta.name) + ' sections"><a href="#sec-E" data-jump="sec-E">Full Episodes</a>' + (hasF ? '<a href="#sec-F" data-jump="sec-F">Full Movies</a>' : '') + (h.M.length ? '<a href="#sec-M" data-jump="sec-M">Marathons</a>' : '') + '<a href="#sec-shows" data-jump="sec-shows">Shows</a></nav>';
     o += cwRail(key);
     o += rail('Full Episodes', h.E, { id: 'sec-E', more: '#' + key + '/all/E', count: h.E.length });
+    if (hasF) o += rail('Full Movies', h.F, { id: 'sec-F', more: '#' + key + '/all/F', count: h.F.length, cls: 'rail-movies' });
     o += rail('Marathons', h.M, { id: 'sec-M', more: '#' + key + '/all/M', count: h.M.length });
     o += '<section class="shows" id="sec-shows" aria-labelledby="sh-h"><div class="rail-head"><h2 id="sh-h"><span>Shows</span> <small>' + h.shows.length + '</small></h2></div><div class="show-grid">' + h.shows.map((x) => showTile(key, x)).join('') + '</div></section>';
     const top = h.shows.filter((x) => !isMore(x.s)).slice(0, 10).concat(h.shows.filter((x) => isMore(x.s)));
@@ -339,20 +362,23 @@
   function showHTML(key, name) {
     const h = store.hubs[key]; const vids = h.byShow.get(name);
     if (!vids) return '<div class="empty"><h2>Show not found</h2><p>' + esc(name) + ' is not on ' + esc(HUBS[key].name) + ' right now.</p><a class="btn" href="#' + key + '">Back to ' + esc(HUBS[key].name) + '</a></div>';
-    const E = vids.filter((v) => v.k === 'E'), M = vids.filter((v) => v.k === 'M');
-    const all = E.concat(M);
+    const E = vids.filter((v) => v.k === 'E'), M = vids.filter((v) => v.k === 'M'), F = vids.filter((v) => v.k === 'F');
+    const all = E.concat(F, M); const ordd = !!HUBS[key].ordered;
+    if (ordd) { E.forEach((v, i) => { v.n = i + 1; }); F.forEach((v) => { v.n = 0; }); M.forEach((v) => { v.n = 0; }); }
     let o = '<section class="show-hero"><img class="sh-bg" src="' + thumb(vids[0].id, 'maxresdefault') + '" data-fb="' + thumb(vids[0].id, 'hqdefault') + '" alt=""><div class="sh-shade"></div><div class="sh-in">' +
       '<a class="crumb" href="#' + key + '">‹ ' + esc(HUBS[key].name) + '</a>' +
       '<h1 class="sh-title">' + esc(name) + '</h1>' +
-      '<p class="sh-meta">' + [E.length ? E.length + ' full episode' + (E.length > 1 ? 's' : '') : '', M.length ? M.length + ' marathon' + (M.length > 1 ? 's' : '') : ''].filter(Boolean).join(' · ') + '</p>' +
-      '<button type="button" class="btn btn-play" data-l="' + reg(all) + '" data-i="0"><i aria-hidden="true">▶</i> Play all</button></div></section>';
-    if (E.length) o += '<section class="sect" aria-labelledby="se-h"><div class="rail-head"><h2 id="se-h"><span>Full Episodes</span> <small>' + E.length + '</small></h2><button type="button" class="see" data-l="' + reg(E) + '" data-i="0">▶ Play all</button></div>' + grid(E) + '</section>';
-    if (M.length) o += '<section class="sect" aria-labelledby="sm-h"><div class="rail-head"><h2 id="sm-h"><span>Marathons</span> <small>' + M.length + '</small></h2><button type="button" class="see" data-l="' + reg(M) + '" data-i="0">▶ Play all</button></div>' + grid(M) + '</section>';
+      '<p class="sh-meta">' + [E.length ? E.length + ' full episode' + (E.length > 1 ? 's' : '') : '', F.length ? F.length + (F.length > 1 ? ' movies & specials' : ' movie / special') : '', M.length ? M.length + ' marathon' + (M.length > 1 ? 's' : '') : ''].filter(Boolean).join(' · ') + '</p>' +
+      '<button type="button" class="btn btn-play" data-l="' + reg(all) + '" data-i="0"><i aria-hidden="true">▶</i> ' + (ordd && E.length ? 'Play from episode 1' : 'Play all') + '</button></div></section>';
+    const gopt = ordd ? { inshow: true } : {};
+    if (E.length) o += '<section class="sect" aria-labelledby="se-h"><div class="rail-head"><h2 id="se-h"><span>Full Episodes</span> <small>' + E.length + '</small></h2><button type="button" class="see" data-l="' + reg(E) + '" data-i="0">▶ Play all</button></div>' + (ordd ? '<p class="sect-note">In order: season &amp; episode where known, otherwise oldest to newest.</p>' : '') + grid(E, gopt) + '</section>';
+    if (F.length) o += '<section class="sect sect-movies" aria-labelledby="sf-h"><div class="rail-head"><h2 id="sf-h"><span>Movies &amp; Specials</span> <small>' + F.length + '</small></h2><button type="button" class="see" data-l="' + reg(F) + '" data-i="0">▶ Play all</button></div>' + grid(F, gopt) + '</section>';
+    if (M.length) o += '<section class="sect" aria-labelledby="sm-h"><div class="rail-head"><h2 id="sm-h"><span>' + (ordd ? 'Full Episode Marathons' : 'Marathons') + '</span> <small>' + M.length + '</small></h2><button type="button" class="see" data-l="' + reg(M) + '" data-i="0">▶ Play all</button></div>' + grid(M, gopt) + '</section>';
     return o;
   }
   function allHTML(key, kind) {
-    const h = store.hubs[key]; const list = kind === 'M' ? h.M : h.E;
-    return '<section class="sect sect-top"><a class="crumb" href="#' + key + '">‹ ' + esc(HUBS[key].name) + '</a><div class="rail-head"><h1><span>' + (kind === 'M' ? 'Marathons' : 'Full Episodes') + '</span> <small>' + fmtNum(list.length) + '</small></h1>' +
+    const h = store.hubs[key]; const list = kind === 'M' ? h.M : kind === 'F' ? (h.F || []) : h.E;
+    return '<section class="sect sect-top"><a class="crumb" href="#' + key + '">‹ ' + esc(HUBS[key].name) + '</a><div class="rail-head"><h1><span>' + kindTitle(kind) + '</span> <small>' + fmtNum(list.length) + '</small></h1>' +
       (list.length ? '<button type="button" class="see" data-l="' + reg(list) + '" data-i="0">▶ Play all</button>' : '') + '</div>' +
       (list.length ? grid(list) : '<div class="empty"><p>Nothing here yet. Check back soon.</p></div>') + '</section>';
   }
@@ -455,7 +481,7 @@
   /* ---------- networks sheet ---------- */
   function openSheet() {
     loadIndex().then(() => {
-      $('#sheet-list').innerHTML = '<a class="sheet-row sheet-live" href="#live"><span class="net-logo">' + liveBadge() + '</span><span class="sr-txt"><b>Live TV</b><small>Nickelodeon TV · Disney TV · Cartoon Network TV, 24/7</small></span><span aria-hidden="true" class="sr-go">›</span></a>' + ORDER.map((k) => { const s = stats(k); return '<a class="sheet-row net-' + k + '" href="#' + k + '"><span class="net-logo"><img src="' + HUBS[k].logo + '" alt=""></span><span class="sr-txt"><b>' + esc(HUBS[k].name) + '</b><small>' + fmtNum(s.episodes) + ' episodes · ' + fmtNum(s.marathons) + ' marathons</small></span><span aria-hidden="true" class="sr-go">›</span></a>'; }).join('');
+      $('#sheet-list').innerHTML = '<a class="sheet-row sheet-live" href="#live"><span class="net-logo">' + liveBadge() + '</span><span class="sr-txt"><b>Live TV</b><small>Nickelodeon TV · Disney TV · Cartoon Network TV · PBS KIDS 24/7</small></span><span aria-hidden="true" class="sr-go">›</span></a>' + ORDER.map((k) => { const s = stats(k); return '<a class="sheet-row net-' + k + '" href="#' + k + '"><span class="net-logo"><img src="' + HUBS[k].logo + '" alt=""></span><span class="sr-txt"><b>' + esc(HUBS[k].name) + '</b><small>' + fmtNum(s.episodes) + ' episodes · ' + (s.movies ? fmtNum(s.movies) + ' movies' : fmtNum(s.marathons) + ' marathons') + '</small></span><span aria-hidden="true" class="sr-go">›</span></a>'; }).join('');
     });
     const sh = $('#sheet'); sh.hidden = false; requestAnimationFrame(() => sh.classList.add('on'));
     document.body.classList.add('noscroll');
@@ -578,14 +604,16 @@
 
   /* ---------- live TV: deterministic 24/7 channels on Eastern time ---------- */
   const TZ = 'America/New_York';
-  const LIVE_ORDER = ['nick', 'disney', 'cn'];
+  const LIVE_ORDER = ['nick', 'disney', 'cn', 'pbskids'];
   const LIVE = {
     nick: { name: 'Nickelodeon TV', short: 'Nick TV', theme: 'nick', logo: HUBS.nick.logo, hubs: ['nick', 'nickjr', 'nickrewind'],
       blocks: [{ h: 0, pool: ['nick', 'nickrewind'], label: 'Nickelodeon TV' }, { h: 6, pool: ['nickjr'], label: 'Nick Jr. on Nickelodeon TV', jr: 'nickjr' }, { h: 11, pool: ['nick'], label: 'Nickelodeon TV' }] },
     disney: { name: 'Disney TV', short: 'Disney TV', theme: 'disney', logo: HUBS.disney.logo, hubs: ['disney', 'disneyjr'],
       blocks: [{ h: 0, pool: ['disney'], label: 'Disney TV' }, { h: 6, pool: ['disneyjr'], label: 'Disney Jr. Mornings', jr: 'disneyjr' }, { h: 11, pool: ['disney'], label: 'Disney TV' }] },
     cn: { name: 'Cartoon Network TV', short: 'CN TV', theme: 'cn', logo: HUBS.cn.logo, hubs: ['cn'],
-      blocks: [{ h: 0, pool: ['cn'], label: 'Cartoon Network TV' }] }
+      blocks: [{ h: 0, pool: ['cn'], label: 'Cartoon Network TV' }] },
+    pbskids: { name: 'PBS KIDS 24/7', short: 'PBS KIDS', theme: 'pbskids', logo: HUBS.pbskids.logo, hubs: ['pbskids'],
+      blocks: [{ h: 0, pool: ['pbskids'], label: 'PBS KIDS 24/7' }] }
   };
   const MIN_D = 120, MAX_D = 3 * 3600 + 300;
   const etFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -671,7 +699,7 @@
   function liveGuideHTML() {
     const t = Date.now(); const zone = tZone.formatToParts(t).find((p) => p.type === 'timeZoneName');
     let o = '<section class="sect sect-top live-guide"><div class="rail-head"><h1>' + liveBadge() + '<span>Live TV</span></h1></div>' +
-      '<p class="lg-sub">Three channels, 24/7. Everyone watches the same thing at the same time. Times shown in your time zone' + (zone ? ' (' + esc(zone.value) + ')' : '') + '; mornings 6–11 AM Eastern are for little ones.</p>';
+      '<p class="lg-sub">Four channels, 24/7. Everyone watches the same thing at the same time. Times shown in your time zone' + (zone ? ' (' + esc(zone.value) + ')' : '') + '; mornings 6–11 AM Eastern are for little ones.</p>';
     LIVE_ORDER.forEach((ch) => {
       const cfg = LIVE[ch]; const list = liveNext(ch, t, 7);
       o += '<section class="lg-row lg-' + ch + '" aria-label="' + esc(cfg.name) + '"><div class="lg-head"><span class="lg-logo"><img src="' + cfg.logo + '" alt=""></span><h2>' + esc(cfg.name) + '</h2><a class="btn lg-watch" href="#live/' + ch + '"><i aria-hidden="true">▶</i> Watch live</a></div>' +
@@ -857,8 +885,8 @@
     if (t.dataset.cwrm) { lsSet(LS_CW, getCW().filter((x) => x.id !== t.dataset.cwrm)); const c = t.closest('.card'); const r = t.closest('.rail-cw'); c && c.remove(); if (r && !r.querySelector('.card')) r.remove(); toast('Removed from Continue Watching'); return; }
     if (t.dataset.more) {
       const l = +t.dataset.more, shown = +t.dataset.shown; const list = store.lists[l]; const g = $('.grid[data-gl="' + l + '"]');
-      const net = g && g.dataset.net === '1';
-      g.insertAdjacentHTML('beforeend', list.slice(shown, shown + PAGE).map((v, i) => card(v, l, shown + i, { net })).join(''));
+      const net = g && g.dataset.net === '1'; const inshow = g && g.dataset.inshow === '1';
+      g.insertAdjacentHTML('beforeend', list.slice(shown, shown + PAGE).map((v, i) => card(v, l, shown + i, { net, inshow })).join(''));
       const w = t.closest('.more-wrap'); const nb = moreBtn(l, shown + PAGE); w.outerHTML = nb || '';
       return;
     }
