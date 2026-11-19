@@ -309,11 +309,19 @@
     const hubs = ORDER.map((k) => store.hubs[k]);
     const feat = hubs.map((h) => h.E[0] || h.videos[0]).filter(Boolean);
     const fl = reg(feat);
+    const pk = store.hubs.pbskids && !store.hubs.pbskids.error ? store.hubs.pbskids : null, pst = pk ? stats('pbskids') : null, nSl = feat.length + (pk ? 1 : 0);
+    const promo = pk ? '<article class="slide slide-promo slide-pbskids" aria-roledescription="slide" aria-label="1 of ' + nSl + '">' +
+      '<img class="slide-img" src="img-pbs-launch.jpg" alt="" fetchpriority="high" decoding="async"><div class="slide-shade"></div>' +
+      '<div class="slide-info"><span class="slide-logo slide-logo-pbskids promo-logo"><img src="' + HUBS.pbskids.logo + '" alt="PBS KIDS"></span>' +
+      '<p class="slide-kicker">New on Dis-Toon-elodeon</p><h2 class="slide-title">PBS KIDS is here!</h2>' +
+      '<p class="slide-meta">' + fmtNum(pst.videos) + ' full episodes &amp; movies · ' + pst.shows + ' shows · every show in order</p>' +
+      '<div class="slide-btns"><a class="btn btn-play" href="#pbskids"><i aria-hidden="true">▶</i> Explore PBS KIDS</a>' +
+      '<a class="btn btn-ghost" href="#live/pbskids">PBS KIDS 24/7</a></div></div></article>' : '';
     let h = '<section class="hero" aria-roledescription="carousel" aria-label="Featured">' +
-      '<div class="hero-track" id="hero-track">' + feat.map((v, i) => {
+      '<div class="hero-track" id="hero-track">' + promo + feat.map((v, i) => {
         remember([v]);
-        return '<article class="slide slide-' + v.hub + '" aria-roledescription="slide" aria-label="' + (i + 1) + ' of ' + feat.length + '">' +
-          '<img class="slide-img" src="' + thumb(v.id, 'maxresdefault') + '" data-fb="' + thumb(v.id, 'hqdefault') + '" alt="" ' + (i ? 'loading="lazy"' : 'fetchpriority="high"') + ' decoding="async">' +
+        return '<article class="slide slide-' + v.hub + '" aria-roledescription="slide" aria-label="' + (i + 1 + (pk ? 1 : 0)) + ' of ' + nSl + '">' +
+          '<img class="slide-img" src="' + thumb(v.id, 'maxresdefault') + '" data-fb="' + thumb(v.id, 'hqdefault') + '" alt="" ' + (i || pk ? 'loading="lazy"' : 'fetchpriority="high"') + ' decoding="async">' +
           '<div class="slide-shade"></div>' +
           '<div class="slide-info"><span class="slide-logo slide-logo-' + v.hub + '"><img src="' + HUBS[v.hub].logo + '" alt="' + esc(HUBS[v.hub].name) + '"></span>' +
           '<p class="slide-kicker">' + (v.k === 'M' ? 'New Marathon' : 'New Full Episode') + (isMore(v.show) ? '' : ' · ' + esc(v.show)) + '</p>' +
@@ -321,7 +329,7 @@
           '<p class="slide-meta">' + [fmtDur(v.d), fmtDate(v.date)].filter(Boolean).join(' · ') + '</p>' +
           '<div class="slide-btns"><button type="button" class="btn btn-play" data-l="' + fl + '" data-i="' + i + '"><i aria-hidden="true">▶</i> Play</button>' +
           '<button type="button" class="btn btn-ghost card-add-wide" data-add="' + v.id + '" data-title="' + esc(v.ct) + '"><i>+</i><span class="ttl">My List</span></button></div></div></article>';
-      }).join('') + '</div><div class="dots" id="hero-dots">' + feat.map((v, i) => '<button type="button" class="dot" data-dot="' + i + '" aria-label="Show slide ' + (i + 1) + '"></button>').join('') + '</div></section>';
+      }).join('') + '</div><div class="dots" id="hero-dots">' + Array.from({ length: nSl }, (_, i) => '<button type="button" class="dot" data-dot="' + i + '" aria-label="Show slide ' + (i + 1) + '"></button>').join('') + '</div></section>';
     h += liveRailHTML();
     h += '<p class="home-tag">Disney <span>·</span> Cartoon Network <span>·</span> Nickelodeon <span>·</span> PBS KIDS. Full episodes, movies &amp; marathons, free.</p>';
     h += cwRail();
